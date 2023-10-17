@@ -1,0 +1,116 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Default: "ami-0f845a2bba44d24b2"
+    Description: Image AMI for machine. Default AMAZON LINUX2.
+  InstanceSize:
+    Type: String
+    Default: "t2.micro"
+    Description: Default machine size for VM
+
+Resources:
+  SSHKey:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: my-ssh-key
+      KeyType: ed25519
+      PublicKeyMaterial: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAC+VpNRYyRPO/0RYc90Y2OeM0ncn1sh2DPHntvoDtKA THS"
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      InstanceTenancy: default
+      Tags:
+        - Key: Name
+          Value: just-vm
+
+  SubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+
+  InternetRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      RouteTableId: !Ref RouteTable
+
+  SubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref SubnetA
+
+  InstanceSecurityGroupSSH:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "EC2 allow traffic"
+      GroupDescription: "Allow ssh traffic to EC2"
+      VpcId:
+        Ref: VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: "22"
+          ToPort: "22"
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+
+  MyInstance:
+    Type: "AWS::EC2::Instance"
+    Properties:
+      Monitoring: false
+      SubnetId: !Ref SubnetA
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceSize
+      KeyName: !Ref SSHKey
+      UserData:
+        Fn::Base64: 
+          !Sub |
+            #!/bin/bash
+            sudo yum update -y
+            sudo amazon-linux-extras install epel -y
+            sudo yum -y install fail2ban
+            sudo cp /etc/fail2ban/jail.conf /etc/fail2ban/jail.local
+            sudo sed -i "s/^\[sshd\]/[sshd]\nenabled=true/" /etc/fail2ban/jail.local
+            sudo systemctl restart fail2ban
+      SecurityGroupIds:
+        - Ref: InstanceSecurityGroupSSH
+      Tags:
+        - Key: Owner
+          Value: Kuba
+        - Key: Name
+          Value: MyInstance
+        - Key: Arch
+          Value: x86
+
+Outputs:
+  PublicIp:
+    Value:
+      Fn::GetAtt:
+        - MyInstance
+        - PublicIp
+    Description: Server's PublicIp Address

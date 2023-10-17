@@ -1,0 +1,4 @@
+ignore_checks:
+  # ignore !Sub in UserData
+  - W1020
+  - E3001
